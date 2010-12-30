@@ -1,0 +1,19 @@
+#!/usr/bin/perl
+use Flickr::API;
+my $api = new Flickr::API({'key' => 'eac1c8300385dd45b79dacdf8bc95ad1', 'secret' => 'e4df254d2111beb8'});
+
+my ( $photoset_id, $page ) = @ARGV;
+$page ||= 1;
+local $| = 1;
+
+# http://flickr.com/services/api/flickr.photosets.getPhotos.html
+my $res = $api->execute_method('flickr.photosets.getPhotos', { 
+	'photoset_id' => $photoset_id, 'per_page' => 100, 'page' => $page });
+
+map { 
+	if ( exists $_->{attributes} ){
+		print $_->{attributes}{id} ."\n";
+	}
+} @{$res->{tree}{children}[1]{children}};
+
+exit;

@@ -1,0 +1,113 @@
+#!/usr/bin/perl
+use Data::Dumper;
+use Flickr::API;
+my $api = new Flickr::API({'key' => 'eac1c8300385dd45b79dacdf8bc95ad1', 'secret' => 'e4df254d2111beb8'});
+
+
+my $item = shift;
+my $page = shift || 1;
+my $notify_done = sprintf "notify-send 'fget done: %s'", $item;
+if ( $item =~ /^http:/ ){
+
+	my $res = parse_url( $item );
+	
+	# a photo sets
+	if ( $res->{'is_photoset'} ){
+		my $photoset_id = $res->{'item_id'};
+		my @photo_ids = get_photos_id_from_set( $photoset_id, $page );
+		foreach my $photo_id ( @photo_ids ){
+			my $photo_url = get_photo_url_from_id( $photo_id );
+			do_wget( $photo_url, $photo_id );
+		}
+
+	# a photo	
+	}elsif ( $res->{'is_photo'} ){
+		my $photo_id = $res->{'item_id'};
+		my $photo_url = get_photo_url_from_id( $photo_id );
+		do_wget( $photo_url, $photo_id );
+	}
+
+	system($notify_done);
+}
+
+sub parse_url {
+	my $url = shift;
+
+	# http://www.flickr.com/photos/kasugai_sean/sets/72157603894067885/
+
+	my $res = {};
+	if ( $url =~ /http:\/\/www\.flickr\.com\/photos\/(.*?)\/sets\/(\d*)\/?/ ){
+		$res->{'is_photoset'} = 1;
+		$res->{'username'} = $1;
+		$res->{'item_id'} = $2;
+
+	# http://www.flickr.com/photos/kasugai_sean/2298432035/
+	# http://www.flickr.com/photos/c0466/2304872354/in/set-72157604027338223/
+
+	}elsif ( $url =~ /http:\/\/www\.flickr\.com\/photos\/(.*?)\/(\d*)\/?/ ){
+		$res->{'is_photo'} = 1;
+		$res->{'username'} = $1;
+		$res->{'item_id'} = $2;
+	
+	# http://farm3.static.flickr.com/2239/2303980751_6db86993d3.jpg?v=0
+
+	}elsif ( $url =~ /http:\/\/farm\d\.static\.flickr\.com\/\d*?\/(\d*?)_(?:.*?).jpg/ ){
+		$res->{'is_photo'} = 1;
+		$res->{'item_id'} = $1;
+	}
+
+	return $res;
+}
+
+
+sub do_wget {
+	my $photo_url = shift;
+	my $photo_id = shift;
+	return unless defined $photo_url and defined $photo_id;
+
+#	my $wget = sprintf "wget -nc -c %s -O %s.jpg\n", $photo_url, $photo_id;
+	my $wget = sprintf "axel -n 3 -a -o %s.jpg %s", $photo_id, $photo_url;
+	print "$wget\n";
+	system($wget);
+}
+
+sub get_photos_id_from_set {
+	my $photoset_id = shift;
+	my $page = shift || 1;
+
+	# http://flickr.com/services/api/flickr.photosets.getPhotos.html
+	my $res = $api->execute_method('flickr.photosets.getPhotos', { 
+		'photoset_id' => $photoset_id, 'per_page' => 500, 'page' => $page });
+
+	my @ids = get_photo_id_from_res($res);
+	return @ids;
+}
+
+sub get_photo_id_from_res {
+	my $res = shift;
+	my @photos_id;
+	map { 
+		if ( exists $_->{attributes} ){
+			push @photos_id, $_->{attributes}{id};
+		}
+	} @{$res->{tree}{children}[1]{children}};
+	return @photos_id;
+}
+
+sub get_photo_url_from_id {
+	my $photo_id = shift;
+
+	# http://www.flickr.com/services/api/flickr.photos.getSizes.html
+	my $res = $api->execute_method('flickr.photos.getSizes', { 'photo_id' => $photo_id });
+
+	my $urls;
+	map {
+		if ( exists $_->{attributes} ){
+			$urls->{lc $_->{attributes}{label}} = $_->{attributes}{source};
+		}
+	} @{$res->{tree}{children}[1]{children}};
+
+	return $urls->{original} || $urls->{large} || $urls->{medium};
+	return $urls->{large} || $urls->{original} || $urls->{medium};
+}
+
